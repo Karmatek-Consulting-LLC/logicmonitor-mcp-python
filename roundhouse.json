@@ -1,0 +1,24 @@
+{
+  "env": [
+    {
+      "name": "LM_COMPANY",
+      "secret": false,
+      "required": true,
+      "description": "LogicMonitor account subdomain (the 'acme' in acme.logicmonitor.com)"
+    },
+    {
+      "name": "LM_BEARER_TOKEN",
+      "secret": true,
+      "required": true,
+      "description": "LogicMonitor API Bearer token"
+    },
+    {
+      "name": "LM_API_TIMEOUT",
+      "secret": false,
+      "required": false,
+      "description": "Per-request timeout in seconds (default 30)"
+    }
+  ],
+  "pip_packages": ["httpx"],
+  "apt_packages": []
+}

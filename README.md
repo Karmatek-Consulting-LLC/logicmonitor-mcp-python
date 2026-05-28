@@ -21,14 +21,14 @@ satisfied by keeping this repository accessible to your team.
 
 ## Configuration
 
-Set via environment variables (in Roundhouse, add these on the server's env
-tab and mark the token **secret**):
+Declared in [`roundhouse.json`](./roundhouse.json) so Roundhouse pre-populates
+them (empty) on import; set the values before deploying:
 
-| Variable          | Required | Description |
-|-------------------|----------|-------------|
-| `LM_COMPANY`      | yes      | Account subdomain — the `acme` in `https://acme.logicmonitor.com`. |
-| `LM_BEARER_TOKEN` | yes      | LogicMonitor API **Bearer** token. |
-| `LM_API_TIMEOUT`  | no       | Per-request timeout in seconds (default `30`). |
+| Variable          | Required | Secret | Description |
+|-------------------|----------|--------|-------------|
+| `LM_COMPANY`      | yes      | no     | Account subdomain — the `acme` in `https://acme.logicmonitor.com`. |
+| `LM_BEARER_TOKEN` | yes      | yes    | LogicMonitor API **Bearer** token. |
+| `LM_API_TIMEOUT`  | no       | no     | Per-request timeout in seconds (default `30`). |
 
 The server boots without credentials (so health checks pass); tools return a
 clear error until `LM_COMPANY` and `LM_BEARER_TOKEN` are set.
@@ -37,14 +37,15 @@ clear error until `LM_COMPANY` and `LM_BEARER_TOKEN` are set.
 
 1. Push this repo to a Git remote Roundhouse can clone.
 2. In Roundhouse choose **Deploy from Git**, point it at the repo URL (and a
-   `ref` if needed). The repo has `server.py` + `Dockerfile` at its root, so
-   it deploys as a code-mode server.
-3. On the new server, add env vars `LM_COMPANY` and `LM_BEARER_TOKEN` (secret),
-   then redeploy.
+   `ref` if needed). Roundhouse reads `roundhouse.json`, seeds the env vars,
+   and imports it as a **not-deployed** code-mode server.
+3. On the new server, fill in `LM_COMPANY` and `LM_BEARER_TOKEN`, then click
+   **Deploy**.
 
-The container listens on `:8000` via streamable-HTTP (`stateless_http`,
-`json_response`) and serves `/healthz` for the platform status badge —
-matching Roundhouse's own generated servers.
+This repo ships **no Dockerfile** — Roundhouse generates one from the manifest
+(`pip_packages` / `apt_packages`) and always installs `fastmcp`. The server
+listens on `:8000` via streamable-HTTP (`stateless_http`, `json_response`) and
+serves `/healthz` for the platform status badge.
 
 ## Run locally
 
