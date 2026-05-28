@@ -31,6 +31,7 @@ them (empty) on import; set the values before deploying:
 | `LM_DOMAIN`       | no       | no     | Portal domain suffix (default `logicmonitor.com`). For **LM for Government**, set your gov domain, e.g. `logicmonitorgov.com` → `https://<LM_COMPANY>.<LM_DOMAIN>`. |
 | `LM_BASE_URL`     | no       | no     | Full portal base URL override, e.g. `https://acme.logicmonitorgov.com`. Wins over `LM_COMPANY`/`LM_DOMAIN`; use for gov/custom/on-prem hosts. |
 | `LM_API_TIMEOUT`  | no       | no     | Per-request timeout in seconds (default `30`). |
+| `LM_LOG_LEVEL`    | no       | no     | Log verbosity (default `INFO`): `DEBUG`/`INFO`/`WARNING`/`ERROR`/`CRITICAL`. |
 
 ¹ `LM_COMPANY` is not required when `LM_BASE_URL` is set.
 
@@ -40,6 +41,22 @@ them (empty) on import; set the values before deploying:
 
 The server boots without credentials (so health checks pass); tools return a
 clear error until the portal URL and `LM_BEARER_TOKEN` are set.
+
+## Logging & troubleshooting
+
+Logs go to stdout, so they stream in the Roundhouse **Logs** tab. Verbosity
+follows `LM_LOG_LEVEL`:
+
+- **INFO** (default): one line per tool call (start/ok/error) and one per LM
+  API request (`LM GET /device/groups -> 200 (123ms, 4567 bytes)`).
+- **DEBUG**: also logs the resolved request URL, query params, request headers
+  (the Bearer token is redacted), and tool arguments — the fastest way to
+  confirm *exactly* which URL/host a tool hit and why a call failed.
+- **WARNING**/**ERROR**: only failures (non-2xx responses with LM's error
+  message, non-JSON bodies, network errors).
+
+Set `LM_LOG_LEVEL=DEBUG` while diagnosing connectivity/permission issues, then
+dial back to `INFO`.
 
 ## Deploy into Roundhouse
 

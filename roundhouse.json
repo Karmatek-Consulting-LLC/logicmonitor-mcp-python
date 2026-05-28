@@ -29,6 +29,12 @@
       "secret": false,
       "required": false,
       "description": "Per-request timeout in seconds (default 30)"
+    },
+    {
+      "name": "LM_LOG_LEVEL",
+      "secret": false,
+      "required": false,
+      "description": "Log verbosity: DEBUG / INFO / WARNING / ERROR (default INFO). DEBUG logs request URL/params/headers and tool args."
     }
   ],
   "pip_packages": ["httpx"],

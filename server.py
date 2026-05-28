@@ -19,6 +19,10 @@ Configuration (environment variables):
                     "https://acme.logicmonitorgov.com". Wins over
                     LM_COMPANY/LM_DOMAIN; use for gov/custom/on-prem hosts.
   LM_API_TIMEOUT    Per-request timeout in seconds (optional, default 30)
+  LM_LOG_LEVEL      Log verbosity (optional, default INFO). Standard levels:
+                    DEBUG / INFO / WARNING / ERROR / CRITICAL. DEBUG logs the
+                    resolved request URL, params, headers (token redacted) and
+                    tool arguments.
 
 Filtering: list_* tools accept LogicMonitor filter syntax via `filter`,
 e.g. filter='hostStatus:alive,displayName~"*web*"'. Use comma (,) for AND
@@ -26,16 +30,85 @@ and || for OR. Wildcard values must be quoted: displayName~"*prod*".
 """
 from __future__ import annotations
 
+import logging
 import os
+import sys
+import time
 from typing import Any
 from urllib.parse import quote
 
 import httpx
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+from fastmcp.server.middleware import Middleware
 from starlette.responses import PlainTextResponse
 
+# --------------------------------------------------------------------------
+# Logging - verbosity via LM_LOG_LEVEL (standard levels, default INFO). Logs
+# go to stdout so they surface in the Roundhouse "Logs" tab. DEBUG adds the
+# resolved request URL/params/headers (token redacted) and tool arguments.
+# --------------------------------------------------------------------------
+log = logging.getLogger("logicmonitor")
+
+
+def _configure_logging() -> None:
+    name = (os.environ.get("LM_LOG_LEVEL") or "INFO").strip().upper()
+    level = logging.getLevelName(name)
+    if not isinstance(level, int):
+        level = logging.INFO
+    log.setLevel(level)
+    if not log.handlers:
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s [logicmonitor] %(message)s"))
+        log.addHandler(handler)
+        log.propagate = False
+
+
+_configure_logging()
+
+
+_SECRET_ARG_HINTS = ("token", "secret", "password", "authorization", "apikey", "api_key")
+
+
+def _redact_args(arguments: Any) -> Any:
+    """Mask values whose key looks secret, so DEBUG arg logs stay safe."""
+    if not isinstance(arguments, dict):
+        return arguments
+    return {
+        k: ("***" if any(h in k.lower() for h in _SECRET_ARG_HINTS) else v)
+        for k, v in arguments.items()
+    }
+
+
 mcp = FastMCP("logicmonitor")
+
+
+class LoggingMiddleware(Middleware):
+    """Log every tool call: name at INFO, arguments at DEBUG, duration on
+    completion, and full error detail (with traceback at DEBUG) on failure.
+    Combined with the per-request LM API logging in _get, this gives a full
+    picture of what each tool did. Verbosity follows LM_LOG_LEVEL."""
+
+    async def on_call_tool(self, context, call_next):
+        msg = context.message
+        name = getattr(msg, "name", "?")
+        started = time.perf_counter()
+        log.info("tool call -> %s", name)
+        if log.isEnabledFor(logging.DEBUG):
+            log.debug("tool args -> %s: %s", name, _redact_args(getattr(msg, "arguments", None)))
+        try:
+            result = await call_next(context)
+        except Exception as exc:
+            dur = (time.perf_counter() - started) * 1000
+            log.error("tool error <- %s after %.0fms: %s: %s", name, dur, type(exc).__name__, exc)
+            log.debug("tool traceback for %s", name, exc_info=True)
+            raise
+        dur = (time.perf_counter() - started) * 1000
+        log.info("tool ok <- %s (%.0fms)", name, dur)
+        return result
+
+
+mcp.add_middleware(LoggingMiddleware())
 
 
 # --------------------------------------------------------------------------
@@ -103,11 +176,20 @@ def _clean_params(params: dict[str, Any]) -> dict[str, Any]:
 def _get(path: str, **params: Any) -> Any:
     """Authenticated GET against the LogicMonitor REST API."""
     url = _base_url() + path
+    clean = _clean_params(params)
+    headers = _headers()
+    if log.isEnabledFor(logging.DEBUG):
+        safe = {**headers, "Authorization": "Bearer ***"}
+        log.debug("LM GET %s params=%s headers=%s", url, clean, safe)
+    started = time.perf_counter()
     try:
         with httpx.Client(timeout=_timeout(), follow_redirects=True) as client:
-            resp = client.get(url, headers=_headers(), params=_clean_params(params))
+            resp = client.get(url, headers=headers, params=clean)
     except httpx.HTTPError as exc:
+        log.error("LM GET %s network error: %s", url, exc)
         raise ToolError(f"LogicMonitor request failed: {exc}") from exc
+    dur_ms = (time.perf_counter() - started) * 1000
+    log.info("LM GET %s -> %s (%.0fms, %d bytes)", path, resp.status_code, dur_ms, len(resp.content))
     if resp.status_code >= 400:
         detail = ""
         try:
@@ -115,6 +197,7 @@ def _get(path: str, **params: Any) -> Any:
             detail = body.get("errorMessage") or body.get("errmsg") or ""
         except ValueError:  # body may not be JSON
             detail = resp.text[:300]
+        log.warning("LM GET %s failed: HTTP %s - %s", url, resp.status_code, detail or resp.reason_phrase)
         raise ToolError(f"LogicMonitor API error {resp.status_code}: {detail or resp.reason_phrase}")
     try:
         return resp.json()
@@ -124,6 +207,7 @@ def _get(path: str, **params: Any) -> Any:
         # diagnose instead of a bare "Expecting value" decode error.
         ctype = resp.headers.get("content-type", "?")
         snippet = " ".join(resp.text[:200].split())
+        log.warning("LM GET %s returned non-JSON (HTTP %s, ctype=%s): %s", url, resp.status_code, ctype, snippet)
         raise ToolError(
             f"LogicMonitor returned a non-JSON response (HTTP {resp.status_code}, "
             f"content-type {ctype}) from {url}. This usually means the request didn't reach "
@@ -802,6 +886,14 @@ async def _healthz(request):  # noqa: ANN001 - starlette Request
 
 
 if __name__ == "__main__":
+    try:
+        _portal = _portal_base()
+    except ToolError:
+        _portal = "<unconfigured: set LM_COMPANY or LM_BASE_URL>"
+    log.info(
+        "LogicMonitor MCP starting: portal=%s level=%s",
+        _portal, logging.getLevelName(log.level),
+    )
     mcp.run(
         transport="streamable-http",
         host="0.0.0.0",
