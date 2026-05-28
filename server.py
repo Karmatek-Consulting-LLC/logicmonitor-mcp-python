@@ -10,8 +10,14 @@ MCP platform ("Deploy from Git"). It is itself licensed AGPL-3.0-or-later.
 
 Configuration (environment variables):
   LM_COMPANY        LogicMonitor account subdomain, e.g. "acme" for
-                    https://acme.logicmonitor.com  (required)
+                    https://acme.logicmonitor.com  (required unless LM_BASE_URL)
   LM_BEARER_TOKEN   LogicMonitor API Bearer token (required, mark secret)
+  LM_DOMAIN         Portal domain suffix (optional, default "logicmonitor.com").
+                    For LM for Government set your gov domain, e.g.
+                    "logicmonitorgov.com" -> https://<LM_COMPANY>.<LM_DOMAIN>
+  LM_BASE_URL       Full portal base URL override (optional), e.g.
+                    "https://acme.logicmonitorgov.com". Wins over
+                    LM_COMPANY/LM_DOMAIN; use for gov/custom/on-prem hosts.
   LM_API_TIMEOUT    Per-request timeout in seconds (optional, default 30)
 
 Filtering: list_* tools accept LogicMonitor filter syntax via `filter`,
@@ -43,12 +49,25 @@ def _company() -> str:
     return company
 
 
+def _portal_base() -> str:
+    """Portal base URL, e.g. https://acme.logicmonitor.com.
+
+    LM_BASE_URL fully overrides it (gov/custom/on-prem). Otherwise it's built
+    from LM_COMPANY + LM_DOMAIN, where LM_DOMAIN defaults to logicmonitor.com
+    (set it to your gov domain for LM for Government)."""
+    override = os.environ.get("LM_BASE_URL", "").strip()
+    if override:
+        return override.rstrip("/")
+    domain = os.environ.get("LM_DOMAIN", "").strip() or "logicmonitor.com"
+    return f"https://{_company()}.{domain}"
+
+
 def _base_url() -> str:
-    return f"https://{_company()}.logicmonitor.com/santaba/rest"
+    return f"{_portal_base()}/santaba/rest"
 
 
 def _ui_base() -> str:
-    return f"https://{_company()}.logicmonitor.com"
+    return _portal_base()
 
 
 def _headers() -> dict[str, str]:

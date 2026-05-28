@@ -26,12 +26,20 @@ them (empty) on import; set the values before deploying:
 
 | Variable          | Required | Secret | Description |
 |-------------------|----------|--------|-------------|
-| `LM_COMPANY`      | yes      | no     | Account subdomain — the `acme` in `https://acme.logicmonitor.com`. |
+| `LM_COMPANY`      | yes¹     | no     | Account subdomain — the `acme` in `https://acme.logicmonitor.com`. |
 | `LM_BEARER_TOKEN` | yes      | yes    | LogicMonitor API **Bearer** token. |
+| `LM_DOMAIN`       | no       | no     | Portal domain suffix (default `logicmonitor.com`). For **LM for Government**, set your gov domain, e.g. `logicmonitorgov.com` → `https://<LM_COMPANY>.<LM_DOMAIN>`. |
+| `LM_BASE_URL`     | no       | no     | Full portal base URL override, e.g. `https://acme.logicmonitorgov.com`. Wins over `LM_COMPANY`/`LM_DOMAIN`; use for gov/custom/on-prem hosts. |
 | `LM_API_TIMEOUT`  | no       | no     | Per-request timeout in seconds (default `30`). |
 
+¹ `LM_COMPANY` is not required when `LM_BASE_URL` is set.
+
+**Government / non-standard hosts:** LM for Government isn't on
+`logicmonitor.com`. Either set `LM_DOMAIN` to your gov domain (keeps the
+`<company>.<domain>` pattern) or set `LM_BASE_URL` to the full portal URL.
+
 The server boots without credentials (so health checks pass); tools return a
-clear error until `LM_COMPANY` and `LM_BEARER_TOKEN` are set.
+clear error until the portal URL and `LM_BEARER_TOKEN` are set.
 
 ## Deploy into Roundhouse
 

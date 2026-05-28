@@ -13,6 +13,18 @@
       "description": "LogicMonitor API Bearer token"
     },
     {
+      "name": "LM_DOMAIN",
+      "secret": false,
+      "required": false,
+      "description": "Portal domain suffix (default logicmonitor.com). For LM for Government, e.g. logicmonitorgov.com"
+    },
+    {
+      "name": "LM_BASE_URL",
+      "secret": false,
+      "required": false,
+      "description": "Full portal base URL override, e.g. https://acme.logicmonitorgov.com. Wins over LM_COMPANY/LM_DOMAIN"
+    },
+    {
       "name": "LM_API_TIMEOUT",
       "secret": false,
       "required": false,
