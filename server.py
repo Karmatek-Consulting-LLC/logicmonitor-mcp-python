@@ -104,7 +104,7 @@ def _get(path: str, **params: Any) -> Any:
     """Authenticated GET against the LogicMonitor REST API."""
     url = _base_url() + path
     try:
-        with httpx.Client(timeout=_timeout()) as client:
+        with httpx.Client(timeout=_timeout(), follow_redirects=True) as client:
             resp = client.get(url, headers=_headers(), params=_clean_params(params))
     except httpx.HTTPError as exc:
         raise ToolError(f"LogicMonitor request failed: {exc}") from exc
@@ -113,10 +113,23 @@ def _get(path: str, **params: Any) -> Any:
         try:
             body = resp.json()
             detail = body.get("errorMessage") or body.get("errmsg") or ""
-        except Exception:  # noqa: BLE001 - body may not be JSON
+        except ValueError:  # body may not be JSON
             detail = resp.text[:300]
         raise ToolError(f"LogicMonitor API error {resp.status_code}: {detail or resp.reason_phrase}")
-    return resp.json()
+    try:
+        return resp.json()
+    except ValueError:
+        # 2xx but the body isn't JSON - almost always an HTML login/redirect
+        # page, i.e. the request never reached the REST API. Surface enough to
+        # diagnose instead of a bare "Expecting value" decode error.
+        ctype = resp.headers.get("content-type", "?")
+        snippet = " ".join(resp.text[:200].split())
+        raise ToolError(
+            f"LogicMonitor returned a non-JSON response (HTTP {resp.status_code}, "
+            f"content-type {ctype}) from {url}. This usually means the request didn't reach "
+            f"the REST API - check LM_BASE_URL / LM_DOMAIN / LM_COMPANY and the API token. "
+            f"Body starts: {snippet!r}"
+        )
 
 
 def _paginate(path: str, **params: Any) -> dict[str, Any]:
