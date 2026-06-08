@@ -89,7 +89,7 @@ python server.py            # serves MCP on http://0.0.0.0:8000
 - Quote wildcard values: `displayName~"*prod*"`
 - Example: `filter='hostStatus:alive,displayName~"*web*"'`
 
-`size`/`offset` paginate; `autoPaginate=true` fetches all pages. `fields` is a
+`size`/`offset` paginate. `fields` is a
 comma-separated projection (e.g. `"id,displayName,hostStatus"`).
 `list_resources` also accepts a free-text `query` that searches
 displayName/name/description.

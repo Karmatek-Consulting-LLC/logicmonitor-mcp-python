@@ -216,29 +216,6 @@ def _get(path: str, **params: Any) -> Any:
         )
 
 
-def _paginate(path: str, **params: Any) -> dict[str, Any]:
-    """Fetch every page of a list endpoint and merge into {total, items}."""
-    size = int(params.get("size") or 1000)
-    offset = int(params.get("offset") or 0)
-    params = {**params, "size": size}
-    all_items: list[Any] = []
-    total = 0
-    first = True
-    while True:
-        page = _get(path, **{**params, "offset": offset})
-        if not isinstance(page, dict) or "items" not in page:
-            raise ToolError(f"Unexpected list response from {path}: missing 'items'")
-        if first:
-            total = int(page.get("total") or 0)
-            first = False
-        items = page.get("items") or []
-        all_items.extend(items)
-        if not items or len(all_items) >= total:
-            break
-        offset += len(items)
-    return {"total": total, "items": all_items}
-
-
 def _list(
     path: str,
     *,
@@ -246,12 +223,9 @@ def _list(
     size: int | None = None,
     offset: int | None = None,
     fields: str | None = None,
-    autoPaginate: bool = False,
     **extra: Any,
 ) -> Any:
     params = {"filter": filter, "size": size, "offset": offset, "fields": fields, **extra}
-    if autoPaginate:
-        return _paginate(path, **params)
     return _get(path, **params)
 
 
@@ -291,7 +265,6 @@ def list_resources(
     size: int | None = None,
     offset: int | None = None,
     fields: str | None = None,
-    autoPaginate: bool = False,
 ) -> Any:
     """List all monitored resources/devices in LogicMonitor.
 
@@ -319,12 +292,12 @@ def list_resources(
     - Multiple (AND): filter='hostStatus:alive,displayName~"*web*"'
 
     Pagination: a negative `total` in the response means results are incomplete -
-    page with size/offset or set autoPaginate=true to fetch everything. In large
-    environments (>1000 devices) prefer manual pagination to avoid timeouts.
+    page with size/offset to fetch more. In large environments (>1000 devices)
+    page in batches to avoid timeouts.
 
     Related tools: get_resource (details), generate_resource_link (portal URL)."""
     combined = _with_query(filter, query, ("displayName", "name", "description"))
-    return _list("/device/devices", filter=combined, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/device/devices", filter=combined, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -352,7 +325,7 @@ def get_resource(deviceId: int, fields: str | None = None) -> Any:
 @mcp.tool
 def list_resource_groups(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, autoPaginate: bool = False,
+    fields: str | None = None,
 ) -> Any:
     """List resource/device groups (folders).
 
@@ -370,11 +343,11 @@ def list_resource_groups(
     - Non-empty:   filter='numOfDirectDevices>0'
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_resource_group (details), list_resource_group_properties
     (group properties), list_resources (devices in group)."""
-    return _list("/device/groups", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/device/groups", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -403,7 +376,7 @@ def get_resource_group(groupId: int, fields: str | None = None) -> Any:
 @mcp.tool
 def list_resource_properties(
     deviceId: int, filter: str | None = None, size: int | None = None,
-    offset: int | None = None, fields: str | None = None, autoPaginate: bool = False,
+    offset: int | None = None, fields: str | None = None,
 ) -> Any:
     """List all properties (system and user-defined) of a resource/device.
 
@@ -420,20 +393,20 @@ def list_resource_properties(
     Datasource appliesTo logic uses these properties to decide what to monitor.
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Workflow: use list_resources to find deviceId, then this tool to see all
     properties including inherited ones.
 
     Related tools: get_resource (summary), list_resource_group_properties
     (group-level properties)."""
-    return _list(f"/device/devices/{deviceId}/properties", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list(f"/device/devices/{deviceId}/properties", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
 def list_resource_group_properties(
     groupId: int, filter: str | None = None, size: int | None = None,
-    offset: int | None = None, fields: str | None = None, autoPaginate: bool = False,
+    offset: int | None = None, fields: str | None = None,
 ) -> Any:
     """List all properties of a resource/device group.
 
@@ -452,20 +425,20 @@ def list_resource_group_properties(
     datasource appliesTo logic and authentication.
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Workflow: use list_resource_groups to find groupId, then this tool to review
     inherited settings.
 
     Related tools: get_resource_group (group details), list_resource_properties
     (device-level properties)."""
-    return _list(f"/device/groups/{groupId}/properties", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list(f"/device/groups/{groupId}/properties", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
 def list_resource_datasources(
     deviceId: int, filter: str | None = None, size: int | None = None,
-    offset: int | None = None, fields: str | None = None, autoPaginate: bool = False,
+    offset: int | None = None, fields: str | None = None,
 ) -> Any:
     """List datasources applied to a resource/device (the monitored metric groups).
 
@@ -486,11 +459,11 @@ def list_resource_datasources(
     and collecting; inspect the status field for errors.
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_resource_datasource (details), list_resource_instances
     (next step), get_resource_instance_data (metrics)."""
-    return _list(f"/device/devices/{deviceId}/devicedatasources", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list(f"/device/devices/{deviceId}/devicedatasources", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -577,7 +550,7 @@ def get_resource_instance_data(
 @mcp.tool
 def list_alerts(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, needMessage: bool | None = None, autoPaginate: bool = False,
+    fields: str | None = None, needMessage: bool | None = None,
 ) -> Any:
     """List alerts in LogicMonitor.
 
@@ -604,10 +577,10 @@ def list_alerts(
     the full alert message text.
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_alert (full details), generate_alert_link (portal URL)."""
-    return _list("/alert/alerts", filter=filter, size=size, offset=offset, fields=fields, needMessage=needMessage, autoPaginate=autoPaginate)
+    return _list("/alert/alerts", filter=filter, size=size, offset=offset, fields=fields, needMessage=needMessage)
 
 
 @mcp.tool
@@ -634,7 +607,7 @@ def get_alert(alertId: str, fields: str | None = None, needMessage: bool | None 
 @mcp.tool
 def list_alert_rules(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, autoPaginate: bool = False,
+    fields: str | None = None,
 ) -> Any:
     """List all alert rules - the routing logic that sends alerts to escalation chains.
 
@@ -653,11 +626,11 @@ def list_alert_rules(
       the rule enabled? is the chain configured?)
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_alert_rule (detailed conditions), list_escalation_chains
     (destination chains)."""
-    return _list("/setting/alert/rules", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/setting/alert/rules", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -688,7 +661,7 @@ def get_alert_rule(ruleId: int, fields: str | None = None) -> Any:
 @mcp.tool
 def list_escalation_chains(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, autoPaginate: bool = False,
+    fields: str | None = None,
 ) -> Any:
     """List all escalation chains.
 
@@ -705,11 +678,11 @@ def list_escalation_chains(
     - Verify on-call escalation paths
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_escalation_chain (detailed stages), list_alert_rules
     (which rules use a chain), list_recipients (available notification targets)."""
-    return _list("/setting/alert/chains", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/setting/alert/chains", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -740,7 +713,7 @@ def get_escalation_chain(chainId: int, fields: str | None = None) -> Any:
 @mcp.tool
 def list_recipients(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, autoPaginate: bool = False,
+    fields: str | None = None,
 ) -> Any:
     """List all alert recipients (individual notification targets).
 
@@ -758,11 +731,11 @@ def list_recipients(
     - Review notification endpoints
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_recipient (details), list_recipient_groups (group
     management), list_escalation_chains (who gets notified)."""
-    return _list("/setting/recipients", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/setting/recipients", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -789,7 +762,7 @@ def get_recipient(recipientId: int, fields: str | None = None) -> Any:
 @mcp.tool
 def list_recipient_groups(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, autoPaginate: bool = False,
+    fields: str | None = None,
 ) -> Any:
     """List all recipient groups.
 
@@ -806,11 +779,11 @@ def list_recipient_groups(
     - Review group membership before changes
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_recipient_group (details), list_recipients (individual
     members), list_escalation_chains (usage)."""
-    return _list("/setting/recipientgroups", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/setting/recipientgroups", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -841,7 +814,7 @@ def get_recipient_group(groupId: int, fields: str | None = None) -> Any:
 @mcp.tool
 def list_collectors(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, autoPaginate: bool = False,
+    fields: str | None = None,
 ) -> Any:
     """List all collectors - the agents that gather monitoring data.
 
@@ -865,11 +838,11 @@ def list_collectors(
     - Low capacity: filter='numberOfHosts<100'
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_collector (details), list_collector_groups (browse
     groups), list_collector_versions (check updates)."""
-    return _list("/setting/collector/collectors", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/setting/collector/collectors", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -898,7 +871,7 @@ def get_collector(collectorId: int, fields: str | None = None) -> Any:
 @mcp.tool
 def list_collector_groups(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, autoPaginate: bool = False,
+    fields: str | None = None,
 ) -> Any:
     """List all collector groups (folders).
 
@@ -910,11 +883,11 @@ def list_collector_groups(
     datacenter or function.
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_collector_group (details), list_collectors (collectors in
     group)."""
-    return _list("/setting/collector/groups", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/setting/collector/groups", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -966,7 +939,7 @@ def list_collector_versions(size: int | None = None, offset: int | None = None, 
 @mcp.tool
 def list_datasources(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, autoPaginate: bool = False,
+    fields: str | None = None,
 ) -> Any:
     """List all datasource definitions.
 
@@ -990,11 +963,11 @@ def list_datasources(
     - Network:        filter='name~"*Cisco*"'  or  filter='name~"*SNMP*"'
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_datasource (details), list_resource_datasources (what's
     applied to a specific device)."""
-    return _list("/setting/datasources", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/setting/datasources", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -1024,7 +997,7 @@ def get_datasource(dataSourceId: int, fields: str | None = None) -> Any:
 @mcp.tool
 def list_eventsources(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, autoPaginate: bool = False,
+    fields: str | None = None,
 ) -> Any:
     """List all EventSource definitions.
 
@@ -1040,10 +1013,10 @@ def list_eventsources(
     Linux_Syslog, SNMP_Traps, VMware_Events.
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_eventsource (details)."""
-    return _list("/setting/eventsources", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/setting/eventsources", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -1070,7 +1043,7 @@ def get_eventsource(eventSourceId: int, fields: str | None = None) -> Any:
 @mcp.tool
 def list_configsources(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, autoPaginate: bool = False,
+    fields: str | None = None,
 ) -> Any:
     """List all ConfigSource definitions.
 
@@ -1089,10 +1062,10 @@ def list_configsources(
     Linux_Config_Files.
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_configsource (details)."""
-    return _list("/setting/configsources", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/setting/configsources", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -1123,7 +1096,7 @@ def get_configsource(configSourceId: int, fields: str | None = None) -> Any:
 @mcp.tool
 def list_dashboards(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, autoPaginate: bool = False,
+    fields: str | None = None,
 ) -> Any:
     """List all dashboards.
 
@@ -1141,11 +1114,11 @@ def list_dashboards(
     - By owner: filter='owner:john.doe'
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_dashboard (details), generate_dashboard_link (portal URL),
     list_dashboard_groups (browse hierarchy)."""
-    return _list("/dashboard/dashboards", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/dashboard/dashboards", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -1173,7 +1146,7 @@ def get_dashboard(dashboardId: int, fields: str | None = None) -> Any:
 @mcp.tool
 def list_dashboard_groups(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, autoPaginate: bool = False,
+    fields: str | None = None,
 ) -> Any:
     """List all dashboard groups (folders).
 
@@ -1187,11 +1160,11 @@ def list_dashboard_groups(
     filtered by groupId to see dashboards in a specific folder.
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_dashboard_group (details), list_dashboards (dashboards in
     group)."""
-    return _list("/dashboard/groups", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/dashboard/groups", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -1217,7 +1190,7 @@ def get_dashboard_group(groupId: int, fields: str | None = None) -> Any:
 @mcp.tool
 def list_reports(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, autoPaginate: bool = False,
+    fields: str | None = None,
 ) -> Any:
     """List all reports (scheduled and on-demand).
 
@@ -1239,10 +1212,10 @@ def list_reports(
     - Audit reporting configuration
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_report (details), list_report_groups (organization)."""
-    return _list("/report/reports", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/report/reports", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -1271,7 +1244,7 @@ def get_report(reportId: int, fields: str | None = None) -> Any:
 @mcp.tool
 def list_report_groups(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, autoPaginate: bool = False,
+    fields: str | None = None,
 ) -> Any:
     """List all report groups (folders).
 
@@ -1285,10 +1258,10 @@ def list_report_groups(
     groupId to see reports in a specific folder.
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_report_group (details), list_reports (reports in group)."""
-    return _list("/report/groups", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/report/groups", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -1313,7 +1286,7 @@ def get_report_group(groupId: int, fields: str | None = None) -> Any:
 @mcp.tool
 def list_websites(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, autoPaginate: bool = False,
+    fields: str | None = None,
 ) -> Any:
     """List all website monitors (synthetic checks).
 
@@ -1337,11 +1310,11 @@ def list_websites(
     - By name:   filter='name~"*production*"'
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_website (details), generate_website_link (portal URL),
     list_website_checkpoints (available locations)."""
-    return _list("/website/websites", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/website/websites", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -1376,7 +1349,7 @@ def get_website(websiteId: int, fields: str | None = None) -> Any:
 @mcp.tool
 def list_website_groups(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, autoPaginate: bool = False,
+    fields: str | None = None,
 ) -> Any:
     """List all website groups (folders).
 
@@ -1391,10 +1364,10 @@ def list_website_groups(
     by groupId to see monitors in a specific folder.
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_website_group (details), list_websites (websites in group)."""
-    return _list("/website/groups", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/website/groups", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -1443,7 +1416,7 @@ def list_website_checkpoints(fields: str | None = None) -> Any:
 @mcp.tool
 def list_services(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, autoPaginate: bool = False,
+    fields: str | None = None,
 ) -> Any:
     """List all business services.
 
@@ -1468,11 +1441,11 @@ def list_services(
     - By name:   filter='name~"*production*"'
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_service (details and dependencies), list_service_groups
     (organization)."""
-    return _list("/service/services", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/service/services", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -1505,7 +1478,7 @@ def get_service(serviceId: int, fields: str | None = None) -> Any:
 @mcp.tool
 def list_service_groups(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, autoPaginate: bool = False,
+    fields: str | None = None,
 ) -> Any:
     """List all service groups (folders).
 
@@ -1520,10 +1493,10 @@ def list_service_groups(
     by groupId to see services in a specific folder.
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_service_group (details), list_services (services in group)."""
-    return _list("/service/groups", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/service/groups", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -1548,7 +1521,7 @@ def get_service_group(groupId: int, fields: str | None = None) -> Any:
 @mcp.tool
 def list_users(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, autoPaginate: bool = False,
+    fields: str | None = None,
 ) -> Any:
     """List all user accounts (admins).
 
@@ -1567,11 +1540,11 @@ def list_users(
     - Never logged in: filter='lastLoginOn:0'
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_user (details), list_roles (available roles),
     list_api_tokens (a user's API tokens)."""
-    return _list("/setting/admins", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/setting/admins", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -1602,7 +1575,7 @@ def get_user(userId: int, fields: str | None = None) -> Any:
 @mcp.tool
 def list_roles(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, autoPaginate: bool = False,
+    fields: str | None = None,
 ) -> Any:
     """List all roles (permission sets).
 
@@ -1622,10 +1595,10 @@ def list_roles(
     - Find role IDs for review
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_role (detailed permissions), list_users (who has each role)."""
-    return _list("/setting/roles", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/setting/roles", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -1657,7 +1630,7 @@ def get_role(roleId: int, fields: str | None = None) -> Any:
 @mcp.tool
 def list_access_groups(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, autoPaginate: bool = False,
+    fields: str | None = None,
 ) -> Any:
     """List all access groups.
 
@@ -1674,11 +1647,11 @@ def list_access_groups(
     - Users need both: a role (what they can do) + an access group (what they can see)
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_access_group (details), list_users (user assignments),
     list_resources (resources associated with groups)."""
-    return _list("/setting/accessgroup", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/setting/accessgroup", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -1707,7 +1680,7 @@ def get_access_group(accessGroupId: int, fields: str | None = None) -> Any:
 @mcp.tool
 def list_api_tokens(
     userId: int, filter: str | None = None, size: int | None = None,
-    offset: int | None = None, fields: str | None = None, autoPaginate: bool = False,
+    offset: int | None = None, fields: str | None = None,
 ) -> Any:
     """List API tokens belonging to a specific user (secret keys are NOT returned).
 
@@ -1729,10 +1702,10 @@ def list_api_tokens(
     (>90 days = candidate for revocation) and the note field for purpose.
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: list_users (find userId)."""
-    return _list(f"/setting/admins/{userId}/apitokens", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list(f"/setting/admins/{userId}/apitokens", filter=filter, size=size, offset=offset, fields=fields)
 
 
 # ==========================================================================
@@ -1742,7 +1715,7 @@ def list_api_tokens(
 @mcp.tool
 def list_sdts(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, autoPaginate: bool = False,
+    fields: str | None = None,
 ) -> Any:
     """List all Scheduled Down Times (SDTs) - maintenance windows.
 
@@ -1764,10 +1737,10 @@ def list_sdts(
     - By creator:  filter='admin:john.doe'
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_sdt (details)."""
-    return _list("/sdt/sdts", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/sdt/sdts", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -1792,7 +1765,7 @@ def get_sdt(sdtId: str, fields: str | None = None) -> Any:
 @mcp.tool
 def list_opsnotes(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, autoPaginate: bool = False,
+    fields: str | None = None,
 ) -> Any:
     """List all operational notes (OpsNotes).
 
@@ -1811,10 +1784,10 @@ def list_opsnotes(
     - By device: filter='monitorObjectName~"*prod-web*"'
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_opsnote (details)."""
-    return _list("/setting/opsnotes", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/setting/opsnotes", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -1834,7 +1807,7 @@ def get_opsnote(opsNoteId: str, fields: str | None = None) -> Any:
 @mcp.tool
 def list_audit_logs(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, autoPaginate: bool = False,
+    fields: str | None = None,
 ) -> Any:
     """List audit/access logs of portal activity (for compliance and security).
 
@@ -1859,13 +1832,12 @@ def list_audit_logs(
     Critical notes:
     - Time is epoch SECONDS (not milliseconds like some other LM APIs)
     - The audit-log API does NOT support the OR operator (||), only AND (comma)
-    - Use autoPaginate=true for complete history (can be large/slow)
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_audit_log (details of a specific entry)."""
-    return _list("/setting/accesslogs", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/setting/accesslogs", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -1891,7 +1863,7 @@ def get_audit_log(auditLogId: str, fields: str | None = None) -> Any:
 @mcp.tool
 def list_netscans(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, autoPaginate: bool = False,
+    fields: str | None = None,
 ) -> Any:
     """List all NetScan (network discovery) definitions.
 
@@ -1914,10 +1886,10 @@ def list_netscans(
     - Troubleshoot why a device wasn't auto-discovered
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_netscan (configuration details)."""
-    return _list("/setting/netscans", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/setting/netscans", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
@@ -1950,7 +1922,7 @@ def get_netscan(netscanId: int, fields: str | None = None) -> Any:
 @mcp.tool
 def list_integrations(
     filter: str | None = None, size: int | None = None, offset: int | None = None,
-    fields: str | None = None, autoPaginate: bool = False,
+    fields: str | None = None,
 ) -> Any:
     """List all third-party integrations configured in LogicMonitor.
 
@@ -1970,11 +1942,11 @@ def list_integrations(
     - Audit external connections
 
     Pagination: a negative `total` means incomplete results - page with
-    size/offset or set autoPaginate=true.
+    size/offset.
 
     Related tools: get_integration (configuration details), list_escalation_chains
     (where integrations are used)."""
-    return _list("/setting/integrations", filter=filter, size=size, offset=offset, fields=fields, autoPaginate=autoPaginate)
+    return _list("/setting/integrations", filter=filter, size=size, offset=offset, fields=fields)
 
 
 @mcp.tool
