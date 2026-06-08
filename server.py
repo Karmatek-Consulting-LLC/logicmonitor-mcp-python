@@ -216,6 +216,11 @@ def _get(path: str, **params: Any) -> Any:
         )
 
 
+# Largest page a single list request may fetch. Kept low so large
+# environments page in small batches instead of timing out on one big call.
+MAX_PAGE_SIZE = 100
+
+
 def _list(
     path: str,
     *,
@@ -225,6 +230,8 @@ def _list(
     fields: str | None = None,
     **extra: Any,
 ) -> Any:
+    if size is None or size > MAX_PAGE_SIZE:
+        size = MAX_PAGE_SIZE
     params = {"filter": filter, "size": size, "offset": offset, "fields": fields, **extra}
     return _get(path, **params)
 
